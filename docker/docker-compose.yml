@@ -65,6 +65,8 @@ services:
     entrypoint: web-entrypoint.sh
     command: ['bin/rails', 'server', '-p', '3000', '-b', '::']
     restart: unless-stopped
+    env_file:
+      - .env
     environment:
       RAILS_ENV: ${RAILS_ENV:-production}
       ### To run under a non-root user, set PUID/PGID here (do NOT use `user:`).
@@ -129,6 +131,8 @@ services:
     entrypoint: sidekiq-entrypoint.sh
     command: ['sidekiq']
     restart: unless-stopped
+    env_file:
+      - .env
     environment:
       RAILS_ENV: ${RAILS_ENV:-production}
       ### To run under a non-root user, set PUID/PGID here (do NOT use `user:`).
