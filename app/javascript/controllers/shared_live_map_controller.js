@@ -4,16 +4,19 @@ import maplibregl from "maplibre-gl"
 import { RecentPointLayer } from "maps_maplibre/layers/recent_point_layer"
 import { getMapStyle } from "maps_maplibre/utils/style_manager"
 
+const LIVE_FRESHNESS_SECONDS = 15 * 60
+
 export default class extends Controller {
   static values = {
     linkId: String,
     showRoute: Boolean,
   }
 
-  static targets = ["map", "status", "lastSeen"]
+  static targets = ["map", "status", "lastSeen", "badge"]
 
   connect() {
     this.initializeMap()
+    this.stalenessInterval = setInterval(() => this.checkStaleness(), 30_000)
   }
 
   async initializeMap() {
@@ -44,6 +47,10 @@ export default class extends Controller {
 
   disconnect() {
     this.stopRelativeTicker()
+    if (this.stalenessInterval) {
+      clearInterval(this.stalenessInterval)
+      this.stalenessInterval = null
+    }
     if (this.markerRAF) {
       cancelAnimationFrame(this.markerRAF)
       this.markerRAF = null
@@ -70,8 +77,14 @@ export default class extends Controller {
       this.setStatus("Location unknown — waiting for an update…")
       return
     }
-    const [lon, lat, ts] = points[0]
-    this.setStatus("")
+    const [lon, lat, ts, stale] = points[0]
+    if (stale) {
+      this.setStatus("No longer live — last known location shown")
+      this.setBadgeStale(true)
+    } else {
+      this.setStatus("")
+      this.setBadgeStale(false)
+    }
     this.placeMarker(lon, lat, ts)
     this.setLastSeen(ts)
   }
@@ -102,9 +115,34 @@ export default class extends Controller {
     }
     if (data.lon != null && data.lat != null) {
       this.setStatus("")
+      this.setBadgeStale(false)
       this.placeMarker(data.lon, data.lat, data.ts)
       this.setLastSeen(data.ts)
       if (this.showRouteValue) this.appendToRoute(data.lon, data.lat)
+    }
+  }
+
+  checkStaleness() {
+    if (!this.lastSeenTs) return
+    const diff = Math.floor(Date.now() / 1000) - this.lastSeenTs
+    const stale = diff > LIVE_FRESHNESS_SECONDS
+    if (stale && this.statusTarget.textContent === "") {
+      this.setStatus("No longer live — last known location shown")
+      this.setBadgeStale(true)
+    } else if (!stale) {
+      this.setStatus("")
+      this.setBadgeStale(false)
+    }
+  }
+
+  setBadgeStale(stale) {
+    if (!this.hasBadgeTarget) return
+    if (stale) {
+      this.badgeTarget.className = "badge badge-warning gap-1"
+      this.badgeTarget.textContent = "● Offline"
+    } else {
+      this.badgeTarget.className = "badge badge-error gap-1"
+      this.badgeTarget.textContent = "● Live"
     }
   }
 

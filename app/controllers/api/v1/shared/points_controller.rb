@@ -33,9 +33,10 @@ module Api
           outside_privacy_zones(points)
         end
 
-        # Current-position-only: the user's latest fresh point, privacy-masked.
-        # Returns [] when there is no point, it is stale (user offline), or it
-        # falls inside a privacy zone.
+        # Current-position-only: the user's latest point, privacy-masked.
+        # Returns [] when there is no point at all, or it falls inside a
+        # privacy zone. Stale points (user offline) are still returned with a
+        # "stale" flag so the viewer can show the last known location.
         def live_points
           row = link.user.points.not_anomaly.order(timestamp: :desc).limit(1).pick(
             Arel.sql('ST_X(lonlat::geometry)'),
@@ -45,12 +46,12 @@ module Api
           return [] if row.nil?
 
           lon, lat, ts = row
-          return [] if Time.current.to_i - ts.to_i > LIVE_FRESHNESS_SECONDS
+          stale = Time.current.to_i - ts.to_i > LIVE_FRESHNESS_SECONDS
 
           point = SharedLinks::LivePoint.new(link.user, lat: lat, lon: lon, timestamp: ts).call
           return [] if point[:masked]
 
-          [[point[:lon], point[:lat], point[:ts]]]
+          [[point[:lon], point[:lat], point[:ts], stale]]
         end
 
         def scoped_points

@@ -155,12 +155,27 @@ RSpec.describe 'Api::V1::Shared::Points', type: :request do
       expect(body.first[1]).to be_within(0.0001).of(61.0)
     end
 
-    it 'returns [] when the latest point is older than the freshness threshold' do
+    it 'returns the latest point with a stale flag when older than the freshness threshold' do
       create(:point, user: owner, timestamp: 30.minutes.ago.to_i, latitude: 60.0, longitude: 10.0)
 
       get "/api/v1/shared/#{link.id}/points"
+      body = JSON.parse(response.body)
       expect(response).to have_http_status(:ok)
-      expect(JSON.parse(response.body)).to eq([])
+      expect(body.size).to eq(1)
+      expect(body.first[0]).to be_within(0.0001).of(10.0)
+      expect(body.first[1]).to be_within(0.0001).of(60.0)
+      expect(body.first[2]).to eq(30.minutes.ago.to_i)
+      expect(body.first[3]).to be true # stale flag
+    end
+
+    it 'returns a fresh point without the stale flag' do
+      create(:point, user: owner, timestamp: 2.minutes.ago.to_i, latitude: 61.0, longitude: 11.0)
+
+      get "/api/v1/shared/#{link.id}/points"
+      body = JSON.parse(response.body)
+      expect(response).to have_http_status(:ok)
+      expect(body.size).to eq(1)
+      expect(body.first[3]).to be false # not stale
     end
 
     it 'returns [] when the user has no points' do
