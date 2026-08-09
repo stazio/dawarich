@@ -41,6 +41,10 @@ class DawarichSettings
       @self_hosted ||= SELF_HOSTED
     end
 
+    def cloud_cta_enabled?
+      @cloud_cta_enabled ||= CLOUD_CTA_ENABLED
+    end
+
     def prometheus_exporter_enabled?
       ENV['PROMETHEUS_EXPORTER_ENABLED'].to_s == 'true'
     end

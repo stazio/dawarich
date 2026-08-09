@@ -21,13 +21,16 @@
         <%= image_tag 'logo.svg', alt: 'Dawarich logo', class: 'h-8 w-8 rounded-[20%]' %>
         <span>Dawarich</span>
       <% end %>
-      <%= link_to public_share_cta_url('header'),
-                  class: "inline-flex items-center gap-2 rounded-lg bg-gradient-to-b from-[#3A66E8] to-[#2A56D8] px-4 py-2 text-sm font-bold text-white shadow-[0_6px_16px_rgba(45,91,227,0.30)] transition hover:brightness-105" do %>
-        Try Dawarich Cloud <span aria-hidden="true">→</span>
+      <% if DawarichSettings.cloud_cta_enabled? %>
+        <%= link_to public_share_cta_url('header'),
+                    class: "inline-flex items-center gap-2 rounded-lg bg-gradient-to-b from-[#3A66E8] to-[#2A56D8] px-4 py-2 text-sm font-bold text-white shadow-[0_6px_16px_rgba(45,91,227,0.30)] transition hover:brightness-105" do %>
+          Try Dawarich Cloud <span aria-hidden="true">→</span>
+        <% end %>
       <% end %>
     </div>
   </header>
   <main><%= yield %></main>
+  <% if DawarichSettings.cloud_cta_enabled? %>
   <footer class="relative mt-11 overflow-hidden bg-[#0E1320] text-white">
     <div class="pointer-events-none absolute -right-[8%] -top-[40%] h-[540px] w-[540px]"
          style="background: radial-gradient(circle, rgba(58,102,232,0.40) 0%, rgba(58,102,232,0) 68%);"></div>
@@ -54,5 +57,6 @@
       </div>
     </div>
   </footer>
+  <% end %>
 </body>
 </html>

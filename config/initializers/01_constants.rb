@@ -81,6 +81,9 @@ ALLOW_EMAIL_PASSWORD_LOGIN = ENV.fetch('ALLOW_EMAIL_PASSWORD_LOGIN', 'true') == 
 # Raw data archival setting
 ARCHIVE_RAW_DATA = ENV.fetch('ARCHIVE_RAW_DATA', 'false') == 'true'
 
+# Cloud CTA visibility on public share links (default: true)
+CLOUD_CTA_ENABLED = ENV.fetch('CLOUD_CTA_ENABLED', 'true') == 'true'
+
 # chibichange "What's New" widget. Rendered only for users who explicitly
 # opt in (see User#changelog_consent). Self-hosters can point this at their
 # own chibichange instance.
