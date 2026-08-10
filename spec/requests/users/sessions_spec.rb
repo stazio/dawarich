@@ -102,6 +102,38 @@ RSpec.describe 'Users::Sessions', type: :request do
       end
     end
 
+    context 'when OIDC_AUTO_LOGIN is enabled' do
+      before do
+        allow(DawarichSettings).to receive(:oidc_enabled?).and_return(true)
+        stub_const('OIDC_AUTO_LOGIN', true)
+      end
+
+      it 'redirects to the OIDC provider' do
+        get new_user_session_path
+
+        expect(response).to redirect_to(/\/users\/auth\/openid_connect/)
+      end
+
+      it 'does not render the login page' do
+        get new_user_session_path
+
+        expect(response.body).not_to include('Sign in using your organization')
+      end
+    end
+
+    context 'when OIDC_AUTO_LOGIN is disabled (default)' do
+      before do
+        allow(DawarichSettings).to receive(:oidc_enabled?).and_return(true)
+        stub_const('OIDC_AUTO_LOGIN', false)
+      end
+
+      it 'renders the login page' do
+        get new_user_session_path
+
+        expect(response).to have_http_status(:ok)
+      end
+    end
+
     context 'when OIDC is not enabled' do
       before do
         allow(DawarichSettings).to receive(:oidc_enabled?).and_return(false)

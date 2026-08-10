@@ -65,6 +65,11 @@ OIDC_PROVIDER_NAME = ENV.fetch('OIDC_PROVIDER_NAME', 'Openid Connect').freeze
 # OIDC auto-registration setting (default: true for backward compatibility)
 OIDC_AUTO_REGISTER = ENV.fetch('OIDC_AUTO_REGISTER', 'true') == 'true'
 
+# OIDC auto-login setting (default: false)
+# When enabled, OIDC-enabled instances skip the sign-in page and redirect
+# directly to the OIDC provider, removing the need to press a login button.
+OIDC_AUTO_LOGIN = ENV.fetch('OIDC_AUTO_LOGIN', 'false') == 'true'
+
 APPLE_WEB_SIGN_IN_ENABLED =
   !SELF_HOSTED &&
   ENV['APPLE_WEB_SERVICES_ID'].present? &&

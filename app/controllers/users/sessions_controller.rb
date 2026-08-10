@@ -8,7 +8,20 @@ class Users::SessionsController < Devise::SessionsController
   prepend_before_action :check_otp_required, only: [:create]
 
   def new
-    super
+    if DawarichSettings.oidc_enabled? && OIDC_AUTO_LOGIN && auto_login_provider.present?
+      render inline: <<~HTML, layout: false
+        <form method="post" action="#{omniauth_authorize_path(resource_name, auto_login_provider)}" style="display:none">
+          <input type="hidden" name="authenticity_token" value="#{form_authenticity_token}" />
+        </form>
+        <script>document.forms[0].submit();</script>
+      HTML
+    else
+      super
+    end
+  end
+
+  def auto_login_provider
+    @auto_login_provider ||= resource_class.omniauth_providers.first
   end
 
   protected
