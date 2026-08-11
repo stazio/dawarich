@@ -22,7 +22,7 @@
 <div data-controller="hub-tabs" data-hub-tabs-active-value="<%= active_tab %>">
   <div role="tablist" class="tabs tabs-bordered mb-2">
     <a role="tab" class="tab" data-hub-tabs-target="tab" data-tab="live"
-       data-action="click->hub-tabs#select" data-testid="hub-tab-live">Live location</a>
+       data-action="click->hub-tabs#select" data-testid="hub-tab-live">Live location for <%= current_user.display_name %></a>
     <a role="tab" class="tab" data-hub-tabs-target="tab" data-tab="timeline"
        data-action="click->hub-tabs#select" data-testid="hub-tab-timeline">Time period</a>
     <% if hub.any_shares? %>

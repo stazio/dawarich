@@ -1,26 +1,26 @@
-import { Controller } from "@hotwired/stimulus"
-import { createConsumer } from "@rails/actioncable"
-import maplibregl from "maplibre-gl"
-import { RecentPointLayer } from "maps_maplibre/layers/recent_point_layer"
-import { getMapStyle } from "maps_maplibre/utils/style_manager"
+import { Controller } from "@hotwired/stimulus";
+import { createConsumer } from "@rails/actioncable";
+import maplibregl from "maplibre-gl";
+import { RecentPointLayer } from "maps_maplibre/layers/recent_point_layer";
+import { getMapStyle } from "maps_maplibre/utils/style_manager";
 
-const LIVE_FRESHNESS_SECONDS = 15 * 60
+const LIVE_FRESHNESS_SECONDS = 15 * 60;
 
 export default class extends Controller {
   static values = {
     linkId: String,
     showRoute: Boolean,
-  }
+  };
 
-  static targets = ["map", "status", "lastSeen", "badge"]
+  static targets = ["map", "status", "lastSeen", "badge"];
 
   connect() {
-    this.initializeMap()
-    this.stalenessInterval = setInterval(() => this.checkStaleness(), 30_000)
+    this.initializeMap();
+    this.stalenessInterval = setInterval(() => this.checkStaleness(), 30_000);
   }
 
   async initializeMap() {
-    const style = await getMapStyle("light")
+    const style = await getMapStyle("light");
 
     this.map = new maplibregl.Map({
       container: this.mapTarget,
@@ -29,129 +29,169 @@ export default class extends Controller {
       zoom: 1,
       attributionControl: { compact: true },
       interactive: true,
-    })
+    });
 
     this.map.addControl(
       new maplibregl.NavigationControl({ showCompass: false }),
       "top-right",
-    )
+    );
 
     this.map.on("load", () => {
-      this.recentLayer = new RecentPointLayer(this.map)
-      this.recentLayer.add()
-      if (this.showRouteValue) this.initRoute()
-      this.loadInitialPoint()
-      this.subscribe()
-    })
+      this.recentLayer = new RecentPointLayer(this.map);
+      this.recentLayer.add();
+      if (this.showRouteValue) this.initRoute();
+      this.loadInitialPoint();
+      this.subscribe();
+    });
+  }
+
+  /**
+   * Create a custom marker element with the user's photo/icon.
+   * @param {string} displayName
+   * @param {string|null} photoUrl
+   * @returns {HTMLElement}
+   */
+  createPhotoMarker(displayName, photoUrl) {
+    const el = document.createElement("div");
+    el.style.cssText =
+      "width:32px;height:32px;border-radius:50%;border:2px solid white;box-shadow:0 2px 6px rgba(0,0,0,0.35);overflow:hidden;background:#3b82f6;display:flex;align-items:center;justify-content:center;";
+
+    if (photoUrl) {
+      const img = document.createElement("img");
+      img.src = photoUrl;
+      img.alt = displayName;
+      img.style.cssText =
+        "width:100%;height:100%;object-fit:cover;border-radius:50%;";
+      el.appendChild(img);
+    } else {
+      const initial = (displayName || "?")[0].toUpperCase();
+      el.textContent = initial;
+      el.style.color = "white";
+      el.style.fontSize = "16px";
+      el.style.fontWeight = "bold";
+      el.style.fontFamily = "system-ui, -apple-system, sans-serif";
+    }
+
+    return el;
   }
 
   disconnect() {
-    this.stopRelativeTicker()
+    this.stopRelativeTicker();
     if (this.stalenessInterval) {
-      clearInterval(this.stalenessInterval)
-      this.stalenessInterval = null
+      clearInterval(this.stalenessInterval);
+      this.stalenessInterval = null;
     }
     if (this.markerRAF) {
-      cancelAnimationFrame(this.markerRAF)
-      this.markerRAF = null
+      cancelAnimationFrame(this.markerRAF);
+      this.markerRAF = null;
     }
     if (this.subscription) {
-      this.subscription.unsubscribe()
-      this.subscription = null
+      this.subscription.unsubscribe();
+      this.subscription = null;
     }
     if (this.consumer) {
-      this.consumer.disconnect()
-      this.consumer = null
+      this.consumer.disconnect();
+      this.consumer = null;
     }
     if (this.map) {
-      this.map.remove()
-      this.map = null
+      this.map.remove();
+      this.map = null;
     }
   }
 
   async loadInitialPoint() {
-    const res = await fetch(`/api/v1/shared/${this.linkIdValue}/points`)
-    if (!res.ok) return
-    const points = await res.json()
+    const res = await fetch(`/api/v1/shared/${this.linkIdValue}/points`);
+    if (!res.ok) return;
+    const points = await res.json();
     if (!points.length) {
-      this.setStatus("Location unknown — waiting for an update…")
-      return
+      this.setStatus("Location unknown — waiting for an update…");
+      return;
     }
-    const [lon, lat, ts, stale] = points[0]
+    const [lon, lat, ts, stale, displayName, photoUrl] = points[0];
     if (stale) {
-      this.setStatus("No longer live — last known location shown")
-      this.setBadgeStale(true)
+      this.setStatus("No longer live — last known location shown");
+      this.setBadgeStale(true);
     } else {
-      this.setStatus("")
-      this.setBadgeStale(false)
+      this.setStatus("");
+      this.setBadgeStale(false);
     }
-    this.placeMarker(lon, lat, ts)
-    this.setLastSeen(ts)
+    // Store user info for the marker
+    this._displayName = displayName || "User";
+    this._photoUrl = photoUrl || null;
+    // Create photo marker if we have user info
+    if (displayName || photoUrl) {
+      this._createPhotoMarkerAt(lon, lat);
+    }
+    this.placeMarker(lon, lat, ts);
+    this.setLastSeen(ts);
   }
 
   subscribe() {
     this.consumer = createConsumer(
       `/cable?share_id=${encodeURIComponent(this.linkIdValue)}`,
-    )
+    );
     this.subscription = this.consumer.subscriptions.create(
       { channel: "SharedLocationChannel", share_id: this.linkIdValue },
       {
         received: (data) => this.handleMessage(data),
       },
-    )
+    );
   }
 
   handleMessage(data) {
     if (data.revoked) {
-      this.setStatus("This live share has ended.")
-      this.hideMarker()
-      if (this.subscription) this.subscription.unsubscribe()
-      return
+      this.setStatus("This live share has ended.");
+      this.hideMarker();
+      if (this.subscription) this.subscription.unsubscribe();
+      return;
     }
     if (data.masked) {
-      this.setStatus("Location hidden.")
-      this.hideMarker()
-      return
+      this.setStatus("Location hidden.");
+      this.hideMarker();
+      return;
     }
     if (data.lon != null && data.lat != null) {
-      this.setStatus("")
-      this.setBadgeStale(false)
-      this.placeMarker(data.lon, data.lat, data.ts)
-      this.setLastSeen(data.ts)
-      if (this.showRouteValue) this.appendToRoute(data.lon, data.lat)
+      this.setStatus("");
+      this.setBadgeStale(false);
+      // Store user info from WebSocket if available
+      if (data.display_name) this._displayName = data.display_name;
+      if (data.photo_url) this._photoUrl = data.photo_url;
+      this.placeMarker(data.lon, data.lat, data.ts);
+      this.setLastSeen(data.ts);
+      if (this.showRouteValue) this.appendToRoute(data.lon, data.lat);
     }
   }
 
   checkStaleness() {
-    if (!this.lastSeenTs) return
-    const diff = Math.floor(Date.now() / 1000) - this.lastSeenTs
-    const stale = diff > LIVE_FRESHNESS_SECONDS
+    if (!this.lastSeenTs) return;
+    const diff = Math.floor(Date.now() / 1000) - this.lastSeenTs;
+    const stale = diff > LIVE_FRESHNESS_SECONDS;
     if (stale && this.statusTarget.textContent === "") {
-      this.setStatus("No longer live — last known location shown")
-      this.setBadgeStale(true)
+      this.setStatus("No longer live — last known location shown");
+      this.setBadgeStale(true);
     } else if (!stale) {
-      this.setStatus("")
-      this.setBadgeStale(false)
+      this.setStatus("");
+      this.setBadgeStale(false);
     }
   }
 
   setBadgeStale(stale) {
-    if (!this.hasBadgeTarget) return
+    if (!this.hasBadgeTarget) return;
     if (stale) {
-      this.badgeTarget.className = "badge badge-warning gap-1"
-      this.badgeTarget.textContent = "● Offline"
+      this.badgeTarget.className = "badge badge-warning gap-1";
+      this.badgeTarget.textContent = "● Offline";
     } else {
-      this.badgeTarget.className = "badge badge-error gap-1"
-      this.badgeTarget.textContent = "● Live"
+      this.badgeTarget.className = "badge badge-error gap-1";
+      this.badgeTarget.textContent = "● Live";
     }
   }
 
   async initRoute() {
-    this.routeCoords = []
+    this.routeCoords = [];
     this.map.addSource("live-route-source", {
       type: "geojson",
       data: this.routeFeature(),
-    })
+    });
     this.map.addLayer(
       {
         id: "live-route",
@@ -165,151 +205,177 @@ export default class extends Controller {
         },
       },
       "recent-point-pulse",
-    )
-    const res = await fetch(`/api/v1/shared/${this.linkIdValue}/route`)
-    if (!res.ok) return
-    const points = await res.json()
-    this.routeCoords = points.map(([lon, lat]) => [lon, lat])
-    this.renderRoute()
+    );
+    const res = await fetch(`/api/v1/shared/${this.linkIdValue}/route`);
+    if (!res.ok) return;
+    const points = await res.json();
+    this.routeCoords = points.map(([lon, lat]) => [lon, lat]);
+    this.renderRoute();
   }
 
   appendToRoute(lon, lat) {
-    if (!this.routeCoords) return
-    const last = this.routeCoords[this.routeCoords.length - 1]
-    if (last && last[0] === lon && last[1] === lat) return
-    this.routeCoords.push([lon, lat])
-    this.renderRoute()
+    if (!this.routeCoords) return;
+    const last = this.routeCoords[this.routeCoords.length - 1];
+    if (last && last[0] === lon && last[1] === lat) return;
+    this.routeCoords.push([lon, lat]);
+    this.renderRoute();
   }
 
   renderRoute() {
-    const src = this.map.getSource("live-route-source")
-    if (src) src.setData(this.routeFeature())
+    const src = this.map.getSource("live-route-source");
+    if (src) src.setData(this.routeFeature());
   }
 
   routeFeature() {
     return {
       type: "Feature",
       geometry: { type: "LineString", coordinates: this.routeCoords || [] },
-    }
+    };
   }
 
   placeMarker(lon, lat, ts) {
-    this.updateTimeLabel(lon, lat, ts)
-    this.animateMarkerTo(lon, lat)
+    this.updateTimeLabel(lon, lat, ts);
+    this.animateMarkerTo(lon, lat);
     this.map.easeTo({
       center: [lon, lat],
       zoom: Math.max(this.map.getZoom(), 13),
       duration: this.markerAnimDuration,
       easing: (t) => t,
-    })
+    });
   }
 
   animateMarkerTo(lon, lat) {
-    const now = performance.now()
-    const interval = this.lastMarkerUpdate ? now - this.lastMarkerUpdate : 0
-    this.lastMarkerUpdate = now
+    const now = performance.now();
+    const interval = this.lastMarkerUpdate ? now - this.lastMarkerUpdate : 0;
+    this.lastMarkerUpdate = now;
     this.markerAnimDuration =
-      interval > 0 ? Math.min(2500, Math.max(300, interval)) : 0
+      interval > 0 ? Math.min(2500, Math.max(300, interval)) : 0;
     this.markerAnim = {
       from: this.markerPos || [lon, lat],
       to: [lon, lat],
       start: now,
       duration: this.markerAnimDuration,
-    }
-    if (!this.markerRAF) this.tickMarker()
+    };
+    if (!this.markerRAF) this.tickMarker();
   }
 
   tickMarker() {
-    const anim = this.markerAnim
+    const anim = this.markerAnim;
     if (!anim) {
-      this.markerRAF = null
-      return
+      this.markerRAF = null;
+      return;
     }
     const t =
       anim.duration > 0
         ? Math.min(1, (performance.now() - anim.start) / anim.duration)
-        : 1
-    const lon = anim.from[0] + (anim.to[0] - anim.from[0]) * t
-    const lat = anim.from[1] + (anim.to[1] - anim.from[1]) * t
-    this.markerPos = [lon, lat]
-    if (this.recentLayer) this.recentLayer.updateRecentPoint(lon, lat)
-    if (this.timeLabel) this.timeLabel.setLngLat([lon, lat])
+        : 1;
+    const lon = anim.from[0] + (anim.to[0] - anim.from[0]) * t;
+    const lat = anim.from[1] + (anim.to[1] - anim.from[1]) * t;
+    this.markerPos = [lon, lat];
+    if (this.recentLayer) this.recentLayer.updateRecentPoint(lon, lat);
+    if (this.timeLabel) this.timeLabel.setLngLat([lon, lat]);
+    if (this.photoMarker) this.photoMarker.setLngLat([lon, lat]);
     if (t < 1) {
-      this.markerRAF = requestAnimationFrame(() => this.tickMarker())
+      this.markerRAF = requestAnimationFrame(() => this.tickMarker());
     } else {
-      this.markerPos = anim.to
-      this.markerAnim = null
-      this.markerRAF = null
+      this.markerPos = anim.to;
+      this.markerAnim = null;
+      this.markerRAF = null;
     }
   }
 
   updateTimeLabel(lon, lat, ts) {
-    if (ts == null) return
-    const label = new Date(Number(ts) * 1000).toLocaleTimeString()
+    if (ts == null) return;
+    const label = new Date(Number(ts) * 1000).toLocaleTimeString();
     if (!this.timeLabel) {
-      const el = document.createElement("div")
+      const el = document.createElement("div");
       el.style.cssText =
-        "padding:2px 6px;border-radius:6px;background:rgba(255,255,255,0.9);color:#1f2937;font-size:12px;font-weight:600;white-space:nowrap;box-shadow:0 1px 3px rgba(0,0,0,0.25);pointer-events:none;"
+        "padding:2px 6px;border-radius:6px;background:rgba(255,255,255,0.9);color:#1f2937;font-size:12px;font-weight:600;white-space:nowrap;box-shadow:0 1px 3px rgba(0,0,0,0.25);pointer-events:none;";
       this.timeLabel = new maplibregl.Marker({
         element: el,
         anchor: "top",
         offset: [0, 16],
       })
         .setLngLat(this.markerPos || [lon, lat])
-        .addTo(this.map)
+        .addTo(this.map);
     }
-    this.timeLabel.getElement().textContent = label
+    this.timeLabel.getElement().textContent = label;
   }
 
   hideMarker() {
-    if (this.recentLayer) this.recentLayer.clear()
+    if (this.recentLayer) this.recentLayer.clear();
     if (this.timeLabel) {
-      this.timeLabel.remove()
-      this.timeLabel = null
+      this.timeLabel.remove();
+      this.timeLabel = null;
     }
+    if (this.photoMarker) {
+      this.photoMarker.remove();
+      this.photoMarker = null;
+    }
+  }
+
+  /**
+   * Create or update the photo marker at the given coordinates.
+   * @param {number} lon
+   * @param {number} lat
+   */
+  _createPhotoMarkerAt(lon, lat) {
+    if (!this._displayName && !this._photoUrl) return;
+    // Remove existing photo marker
+    if (this.photoMarker) {
+      this.photoMarker.remove();
+    }
+    const el = this.createPhotoMarker(this._displayName, this._photoUrl);
+    this.photoMarker = new maplibregl.Marker({
+      element: el,
+      anchor: "center",
+      offset: [0, -18],
+    })
+      .setLngLat([lon, lat])
+      .addTo(this.map);
   }
 
   setStatus(text) {
-    if (this.hasStatusTarget) this.statusTarget.textContent = text
+    if (this.hasStatusTarget) this.statusTarget.textContent = text;
   }
 
   setLastSeen(ts) {
-    if (!this.hasLastSeenTarget) return
+    if (!this.hasLastSeenTarget) return;
     if (ts == null) {
-      this.lastSeenTarget.textContent = ""
-      this.lastSeenTs = null
-      this.stopRelativeTicker()
-      return
+      this.lastSeenTarget.textContent = "";
+      this.lastSeenTs = null;
+      this.stopRelativeTicker();
+      return;
     }
-    this.lastSeenTs = Number(ts)
-    this.renderLastSeen()
-    this.startRelativeTicker()
+    this.lastSeenTs = Number(ts);
+    this.renderLastSeen();
+    this.startRelativeTicker();
   }
 
   renderLastSeen() {
-    if (!this.hasLastSeenTarget || this.lastSeenTs == null) return
-    const seenAt = new Date(this.lastSeenTs * 1000)
-    this.lastSeenTarget.textContent = `Last seen: ${seenAt.toLocaleString()} (${this.relativeTime(this.lastSeenTs)})`
+    if (!this.hasLastSeenTarget || this.lastSeenTs == null) return;
+    const seenAt = new Date(this.lastSeenTs * 1000);
+    this.lastSeenTarget.textContent = `Last seen: ${seenAt.toLocaleString()} (${this.relativeTime(this.lastSeenTs)})`;
   }
 
   relativeTime(ts) {
-    const diff = Math.floor(Date.now() / 1000) - Number(ts)
-    const rtf = new Intl.RelativeTimeFormat(undefined, { numeric: "always" })
-    if (diff < 60) return rtf.format(-diff, "second")
-    if (diff < 3600) return rtf.format(-Math.floor(diff / 60), "minute")
-    if (diff < 86400) return rtf.format(-Math.floor(diff / 3600), "hour")
-    return rtf.format(-Math.floor(diff / 86400), "day")
+    const diff = Math.floor(Date.now() / 1000) - Number(ts);
+    const rtf = new Intl.RelativeTimeFormat(undefined, { numeric: "always" });
+    if (diff < 60) return rtf.format(-diff, "second");
+    if (diff < 3600) return rtf.format(-Math.floor(diff / 60), "minute");
+    if (diff < 86400) return rtf.format(-Math.floor(diff / 3600), "hour");
+    return rtf.format(-Math.floor(diff / 86400), "day");
   }
 
   startRelativeTicker() {
-    if (this.relativeTicker) return
-    this.relativeTicker = setInterval(() => this.renderLastSeen(), 1000)
+    if (this.relativeTicker) return;
+    this.relativeTicker = setInterval(() => this.renderLastSeen(), 1000);
   }
 
   stopRelativeTicker() {
     if (this.relativeTicker) {
-      clearInterval(this.relativeTicker)
-      this.relativeTicker = null
+      clearInterval(this.relativeTicker);
+      this.relativeTicker = null;
     }
   }
 }

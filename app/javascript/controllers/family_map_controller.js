@@ -80,6 +80,8 @@ export default class extends Controller {
       properties: {
         id: loc.user_id,
         name: loc.email || "Unknown",
+        displayName: loc.displayName || loc.email || "Unknown",
+        photoUrl: loc.photoUrl,
         color: MEMBER_COLORS[i % MEMBER_COLORS.length],
         lastUpdate: loc.timestamp,
       },
@@ -140,12 +142,22 @@ export default class extends Controller {
       const coords = e.features[0].geometry.coordinates.slice()
 
       if (this._popup) this._popup.remove()
+
+      const name = props.displayName || props.name || "Unknown"
+      const photoUrl = props.photoUrl
+      const avatarHtml = photoUrl
+        ? `<img src="${photoUrl}" style="width:32px;height:32px;border-radius:50%;object-fit:cover;margin-right:8px;flex-shrink:0" />`
+        : `<div style="width:32px;height:32px;border-radius:50%;background-color:${props.color || '#10b981'};color:white;display:flex;align-items:center;justify-content:center;font-weight:600;margin-right:8px;flex-shrink:0">${(name || "?")[0].toUpperCase()}</div>`
+
       this._popup = new maplibregl.Popup({ offset: 16, closeButton: false })
         .setLngLat(coords)
         .setHTML(
-          `<div style="font-size:13px;line-height:1.5">
-            <div style="font-weight:600">${escapeHtml(props.name)}</div>
-            <div style="opacity:0.6;font-size:11px">${escapeHtml(this.timeAgo(props.lastUpdate))}</div>
+          `<div style="font-size:13px;line-height:1.5;display:flex;align-items:center">
+            ${avatarHtml}
+            <div>
+              <div style="font-weight:600">${escapeHtml(name)}</div>
+              <div style="opacity:0.6;font-size:11px">${escapeHtml(this.timeAgo(props.lastUpdate))}</div>
+            </div>
           </div>`,
         )
         .addTo(this.map)

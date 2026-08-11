@@ -75,15 +75,20 @@
                  <% end %>>
               <div class="flex items-center gap-3">
                 <%# Avatar %>
-                <div class="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 text-sm font-semibold
-                     <%= member == current_user ? 'bg-primary text-primary-content' : 'bg-base-200 text-base-content/60' %>">
-                  <%= member.email&.first&.upcase || '?' %>
+                <div class="avatar flex-shrink-0">
+                  <div class="w-9 rounded-full">
+                    <% if member.photo_url %>
+                      <img src="<%= member.photo_url %>" alt="<%= h member.display_name %>" />
+                    <% else %>
+                      <div class="bg-primary/20 w-full h-full"></div>
+                    <% end %>
+                  </div>
                 </div>
 
                 <%# Info %>
                 <div class="flex-1 min-w-0">
                   <div class="flex items-center gap-2">
-                    <span class="text-sm font-medium truncate"><%= member.email %></span>
+                    <span class="text-sm font-medium truncate"><%= member.display_name %></span>
                     <% if member.family_membership.role == 'owner' %>
                       <span class="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-warning/10 text-warning">Owner</span>
                     <% end %>

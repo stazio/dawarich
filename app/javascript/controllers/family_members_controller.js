@@ -2,6 +2,12 @@ import { Controller } from "@hotwired/stimulus"
 import L from "leaflet"
 import Flash from "./flash_controller"
 
+function escapeHtml(str) {
+  const div = document.createElement('div')
+  div.textContent = str
+  return div.innerHTML
+}
+
 export default class extends Controller {
   static targets = []
 
@@ -93,11 +99,10 @@ export default class extends Controller {
         return
       }
 
-      // Get the first letter of the email or use '?' as fallback
-      const emailInitial =
-        location.email_initial ||
-        location.email?.charAt(0)?.toUpperCase() ||
-        "?"
+      // Get display name or fall back to email initial
+      const displayName = location.displayName || location.email || "Unknown"
+      const photoUrl = location.photoUrl
+      const initial = photoUrl ? "" : (location.email_initial || displayName.charAt(0).toUpperCase())
 
       // Check if this is a recent update (within last 5 minutes)
       const isRecent = this.isRecentUpdate(location.updated_at)
@@ -105,10 +110,15 @@ export default class extends Controller {
         ? "family-member-marker family-member-marker-recent"
         : "family-member-marker"
 
-      // Create a distinct marker for family members with email initial
+      // Create marker with photo or initial
+      const markerHtml = photoUrl
+        ? `<img src="${photoUrl}" style="width:24px;height:24px;border-radius:50%;border:2px solid white;box-shadow:0 2px 4px rgba(0,0,0,0.2);object-fit:cover" />`
+        : `<div style="background-color: #10B981; color: white; border-radius: 50%; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; border: 2px solid white; box-shadow: 0 2px 4px rgba(0,0,0,0.2); font-size: 14px; font-weight: bold; font-family: system-ui, -apple-system, sans-serif;">${initial}</div>`
+
+      // Create a distinct marker for family members
       const familyMarker = L.marker([location.latitude, location.longitude], {
         icon: L.divIcon({
-          html: `<div style="background-color: #10B981; color: white; border-radius: 50%; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; border: 2px solid white; box-shadow: 0 2px 4px rgba(0,0,0,0.2); font-size: 14px; font-weight: bold; font-family: system-ui, -apple-system, sans-serif;">${emailInitial}</div>`,
+          html: markerHtml,
           iconSize: [24, 24],
           iconAnchor: [12, 12],
           className: markerClass,
@@ -123,6 +133,7 @@ export default class extends Controller {
 
       // Create small tooltip that shows automatically
       const tooltipContent = this.createTooltipContent(
+        displayName,
         lastSeen,
         location.battery,
       )
@@ -134,7 +145,7 @@ export default class extends Controller {
       })
 
       // Create detailed popup that shows on click
-      const popupContent = this.createPopupContent(location, lastSeen)
+      const popupContent = this.createPopupContent(location, displayName, lastSeen)
       familyMarker.bindPopup(popupContent)
 
       // Hide tooltip when popup opens, show when popup closes
@@ -178,18 +189,21 @@ export default class extends Controller {
       // Update existing marker position and content
       existingMarker.setLatLng([locationData.latitude, locationData.longitude])
 
-      // Update marker icon with pulse animation for recent updates
-      const emailInitial =
-        locationData.email_initial ||
-        locationData.email?.charAt(0)?.toUpperCase() ||
-        "?"
+      // Update marker icon with photo or initial
+      const displayName = locationData.displayName || locationData.email || "Unknown"
+      const photoUrl = locationData.photoUrl
+      const initial = photoUrl ? "" : (locationData.email_initial || displayName.charAt(0).toUpperCase())
       const isRecent = this.isRecentUpdate(locationData.updated_at)
       const markerClass = isRecent
         ? "family-member-marker family-member-marker-recent"
         : "family-member-marker"
 
+      const markerHtml = photoUrl
+        ? `<img src="${photoUrl}" style="width:24px;height:24px;border-radius:50%;border:2px solid white;box-shadow:0 2px 4px rgba(0,0,0,0.2);object-fit:cover" />`
+        : `<div style="background-color: #10B981; color: white; border-radius: 50%; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; border: 2px solid white; box-shadow: 0 2px 4px rgba(0,0,0,0.2); font-size: 14px; font-weight: bold; font-family: system-ui, -apple-system, sans-serif;">${initial}</div>`
+
       const newIcon = L.divIcon({
-        html: `<div style="background-color: #10B981; color: white; border-radius: 50%; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; border: 2px solid white; box-shadow: 0 2px 4px rgba(0,0,0,0.2); font-size: 14px; font-weight: bold; font-family: system-ui, -apple-system, sans-serif;">${emailInitial}</div>`,
+        html: markerHtml,
         iconSize: [24, 24],
         iconAnchor: [12, 12],
         className: markerClass,
@@ -203,13 +217,14 @@ export default class extends Controller {
         { timeZone: timezone },
       )
       const tooltipContent = this.createTooltipContent(
+        displayName,
         lastSeen,
         locationData.battery,
       )
       existingMarker.setTooltipContent(tooltipContent)
 
       // Update popup content
-      const popupContent = this.createPopupContent(locationData, lastSeen)
+      const popupContent = this.createPopupContent(locationData, displayName, lastSeen)
       existingMarker.setPopupContent(popupContent)
     } else {
       // Create new marker for this user
@@ -229,16 +244,21 @@ export default class extends Controller {
   createSingleFamilyMarker(location) {
     if (!location || !location.latitude || !location.longitude) return
 
-    const emailInitial =
-      location.email_initial || location.email?.charAt(0)?.toUpperCase() || "?"
+    const displayName = location.displayName || location.email || "Unknown"
+    const photoUrl = location.photoUrl
+    const initial = photoUrl ? "" : (location.email_initial || displayName.charAt(0).toUpperCase())
     const isRecent = this.isRecentUpdate(location.updated_at)
     const markerClass = isRecent
       ? "family-member-marker family-member-marker-recent"
       : "family-member-marker"
 
+    const markerHtml = photoUrl
+      ? `<img src="${photoUrl}" style="width:24px;height:24px;border-radius:50%;border:2px solid white;box-shadow:0 2px 4px rgba(0,0,0,0.2);object-fit:cover" />`
+      : `<div style="background-color: #10B981; color: white; border-radius: 50%; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; border: 2px solid white; box-shadow: 0 2px 4px rgba(0,0,0,0.2); font-size: 14px; font-weight: bold; font-family: system-ui, -apple-system, sans-serif;">${initial}</div>`
+
     const familyMarker = L.marker([location.latitude, location.longitude], {
       icon: L.divIcon({
-        html: `<div style="background-color: #10B981; color: white; border-radius: 50%; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; border: 2px solid white; box-shadow: 0 2px 4px rgba(0,0,0,0.2); font-size: 14px; font-weight: bold; font-family: system-ui, -apple-system, sans-serif;">${emailInitial}</div>`,
+        html: markerHtml,
         iconSize: [24, 24],
         iconAnchor: [12, 12],
         className: markerClass,
@@ -250,7 +270,7 @@ export default class extends Controller {
       timeZone: timezone,
     })
 
-    const tooltipContent = this.createTooltipContent(lastSeen, location.battery)
+    const tooltipContent = this.createTooltipContent(displayName, lastSeen, location.battery)
     familyMarker.bindTooltip(tooltipContent, {
       permanent: true,
       direction: "top",
@@ -258,7 +278,7 @@ export default class extends Controller {
       className: "family-member-tooltip",
     })
 
-    const popupContent = this.createPopupContent(location, lastSeen)
+    const popupContent = this.createPopupContent(location, displayName, lastSeen)
     familyMarker.bindPopup(popupContent)
 
     familyMarker.on("popupopen", () => {
@@ -272,20 +292,23 @@ export default class extends Controller {
     this.familyMarkers[location.user_id] = familyMarker
   }
 
-  createTooltipContent(lastSeen, battery) {
+  createTooltipContent(displayName, lastSeen, battery) {
     const batteryInfo =
       battery !== null && battery !== undefined ? ` | Battery: ${battery}%` : ""
-    return `Last seen: ${lastSeen}${batteryInfo}`
+    return `${displayName} · Last seen: ${lastSeen}${batteryInfo}`
   }
 
-  createPopupContent(location, lastSeen) {
+  createPopupContent(location, displayName, lastSeen) {
     const isDark = this.userThemeValue === "dark"
     const bgColor = isDark ? "#1f2937" : "#ffffff"
     const textColor = isDark ? "#f9fafb" : "#111827"
     const mutedColor = isDark ? "#9ca3af" : "#6b7280"
 
-    const emailInitial =
-      location.email_initial || location.email?.charAt(0)?.toUpperCase() || "?"
+    const photoUrl = location.photoUrl
+    const initial = photoUrl ? "" : (location.email_initial || displayName.charAt(0).toUpperCase())
+    const avatarHtml = photoUrl
+      ? `<img src="${photoUrl}" style="width:24px;height:24px;border-radius:50%;object-fit:cover" />`
+      : `<span style="background-color: #10B981; color: white; border-radius: 50%; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: bold;">${initial}</span>`
 
     // Battery display with icon
     const battery = location.battery
@@ -343,8 +366,8 @@ export default class extends Controller {
     return `
       <div class="family-member-popup" style="background-color: ${bgColor}; color: ${textColor}; padding: 12px; border-radius: 8px; min-width: 220px;">
         <h3 style="margin: 0 0 12px 0; color: #10B981; font-size: 15px; font-weight: bold; display: flex; align-items: center; gap: 8px;">
-          <span style="background-color: #10B981; color: white; border-radius: 50%; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: bold;">${emailInitial}</span>
-          Family Member
+          ${avatarHtml}
+          ${escapeHtml(displayName)}
         </h3>
         <p style="margin: 0 0 8px 0; font-size: 13px;">
           <strong>Email:</strong> ${location.email || "Unknown"}

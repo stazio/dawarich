@@ -1,77 +1,127 @@
-import maplibregl from "maplibre-gl"
-import { escapeHtml } from "../utils/geojson_transformers"
-import { BaseLayer } from "./base_layer"
+import maplibregl from "maplibre-gl";
+import { escapeHtml } from "../utils/geojson_transformers";
+import { BaseLayer } from "./base_layer";
 
 /**
  * Family layer showing family member locations
- * Each member has unique color
+ * Each member has unique color; profile photos are used as markers when available.
  */
 export class FamilyLayer extends BaseLayer {
   constructor(map, options = {}) {
-    super(map, { id: "family", ...options })
-    this.memberColors = {}
-    this._historyFeatures = []
+    super(map, { id: "family", ...options });
+    this.memberColors = {};
+    this._historyFeatures = [];
+    this._photoCache = {}; // userId -> image URL
+    this._imageLoadPromises = {}; // userId -> Promise<void>
     this._popup = new maplibregl.Popup({
       closeButton: false,
       closeOnClick: false,
       offset: 12,
-    })
-    this._hoverAttached = false
-    this._popupVisible = false
-    this._onLayerMove = (e) => this._showLastSeenPopup(e)
+    });
+    this._hoverAttached = false;
+    this._popupVisible = false;
+    this._onLayerMove = (e) => this._showLastSeenPopup(e);
     this._onMapMove = (e) => {
-      if (!this._popupVisible) return
-      const layerExists = this.map.getLayer(this.id)
+      if (!this._popupVisible) return;
+      const layerExists = this.map.getLayer(this.id);
       const hits = layerExists
         ? this.map.queryRenderedFeatures(e.point, { layers: [this.id] })
-        : []
-      if (!hits.length) this._hidePopup()
-    }
-    this._onCanvasLeave = () => this._hidePopup()
+        : [];
+      if (!hits.length) this._hidePopup();
+    };
+    this._onCanvasLeave = () => this._hidePopup();
   }
 
   add(data) {
-    super.add(data)
-    this._attachHoverHandlers()
+    super.add(data);
+    // Defer image creation until the map's WebGL context is ready.
+    // addImage() fails with "mismatched image size" if called before
+    // the style is loaded (the GL context reports max texture size 0).
+    this._pendingImages = [];
+    this._onceStyleLoaded = () => {
+      this._createDefaultCircleImage();
+      // Re-process any photos that arrived while waiting for the style
+      this._pendingImages.forEach(([id, url]) =>
+        this._loadPhotoIntoMap(id, url),
+      );
+      this._pendingImages = null;
+    };
+    this.map.once("style.load", this._onceStyleLoaded);
+    // If the style is already loaded, fire the handler immediately
+    if (this.map.isStyleLoaded()) {
+      this._onceStyleLoaded();
+    }
+    this._attachHoverHandlers();
+  }
+
+  /**
+   * Create a default colored-circle image for members without photos.
+   * This is used as the fallback "icon-image" value.
+   */
+  _createDefaultCircleImage() {
+    if (this.map.hasImage("family-circle")) return;
+
+    const size = 64;
+    const canvas = document.createElement("canvas");
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    ctx.clearRect(0, 0, size, size);
+    ctx.beginPath();
+    ctx.arc(size / 2, size / 2, size / 2 - 4, 0, Math.PI * 2);
+    ctx.fillStyle = "#3b82f6";
+    ctx.fill();
+    ctx.strokeStyle = "#ffffff";
+    ctx.lineWidth = 4;
+    ctx.stroke();
+
+    this.map.addImage("family-circle", canvas, { pixelRatio: 2 });
   }
 
   remove() {
-    this._detachHoverHandlers()
-    this._hidePopup()
-    super.remove()
+    // Clean up the deferred style.load handler
+    if (this._onceStyleLoaded) {
+      this.map.off("style.load", this._onceStyleLoaded);
+      this._onceStyleLoaded = null;
+    }
+    this._detachHoverHandlers();
+    this._hidePopup();
+    super.remove();
   }
 
   _attachHoverHandlers() {
-    if (this._hoverAttached) return
-    this.map.on("mouseenter", this.id, this._onLayerMove)
-    this.map.on("mousemove", this.id, this._onLayerMove)
-    this.map.on("mousemove", this._onMapMove)
-    this.map.getCanvas().addEventListener("mouseleave", this._onCanvasLeave)
-    this._hoverAttached = true
+    if (this._hoverAttached) return;
+    this.map.on("mouseenter", this.id, this._onLayerMove);
+    this.map.on("mousemove", this.id, this._onLayerMove);
+    this.map.on("mousemove", this._onMapMove);
+    this.map.getCanvas().addEventListener("mouseleave", this._onCanvasLeave);
+    this._hoverAttached = true;
   }
 
   _detachHoverHandlers() {
-    if (!this._hoverAttached) return
-    this.map.off("mouseenter", this.id, this._onLayerMove)
-    this.map.off("mousemove", this.id, this._onLayerMove)
-    this.map.off("mousemove", this._onMapMove)
-    this.map.getCanvas().removeEventListener("mouseleave", this._onCanvasLeave)
-    this._hoverAttached = false
+    if (!this._hoverAttached) return;
+    this.map.off("mouseenter", this.id, this._onLayerMove);
+    this.map.off("mousemove", this.id, this._onLayerMove);
+    this.map.off("mousemove", this._onMapMove);
+    this.map.getCanvas().removeEventListener("mouseleave", this._onCanvasLeave);
+    this._hoverAttached = false;
   }
 
   _hidePopup() {
-    if (!this._popupVisible) return
-    this.map.getCanvas().style.cursor = ""
-    this._popup.remove()
-    this._popupVisible = false
+    if (!this._popupVisible) return;
+    this.map.getCanvas().style.cursor = "";
+    this._popup.remove();
+    this._popupVisible = false;
   }
 
   _showLastSeenPopup(e) {
-    if (!e.features?.length) return
-    const props = e.features[0].properties
-    this.map.getCanvas().style.cursor = "pointer"
+    if (!e.features?.length) return;
+    const props = e.features[0].properties;
+    this.map.getCanvas().style.cursor = "pointer";
 
-    const rawTs = props.updatedAt || props.lastUpdate
+    const rawTs = props.updatedAt || props.lastUpdate;
     const lastSeen = rawTs
       ? new Date(
           typeof rawTs === "number" ? rawTs : Date.parse(rawTs),
@@ -83,18 +133,26 @@ export class FamilyLayer extends BaseLayer {
           minute: "2-digit",
           hour12: false,
         })
-      : "Unknown"
+      : "Unknown";
 
-    const name = props.name || "Family member"
+    const name = props.display_name || props.name || "Family member";
+    const photoUrl = props.photo_url;
+    const avatarHtml = photoUrl
+      ? `<img src="${photoUrl}" style="width:32px;height:32px;border-radius:50%;object-fit:cover;margin-right:8px;flex-shrink:0" />`
+      : `<div style="width:32px;height:32px;border-radius:50%;background-color:${props.color || "#10b981"};color:white;display:flex;align-items:center;justify-content:center;font-weight:600;margin-right:8px;flex-shrink:0">${(name || "?")[0].toUpperCase()}</div>`;
+
     const html = `
-      <div style="min-width:160px">
-        <div style="font-weight:600;margin-bottom:4px">${escapeHtml(name)}</div>
-        <div style="font-size:12px;opacity:0.8">Last seen: ${escapeHtml(lastSeen)}</div>
+      <div style="min-width:160px;display:flex;align-items:center">
+        ${avatarHtml}
+        <div>
+          <div style="font-weight:600;margin-bottom:4px">${escapeHtml(name)}</div>
+          <div style="font-size:12px;opacity:0.8">Last seen: ${escapeHtml(lastSeen)}</div>
+        </div>
       </div>
-    `
+    `;
 
-    this._popup.setLngLat(e.lngLat).setHTML(html).addTo(this.map)
-    this._popupVisible = true
+    this._popup.setLngLat(e.lngLat).setHTML(html).addTo(this.map);
+    this._popupVisible = true;
   }
 
   getSourceConfig() {
@@ -104,16 +162,47 @@ export class FamilyLayer extends BaseLayer {
         type: "FeatureCollection",
         features: [],
       },
-    }
+    };
   }
 
   getLayerConfigs() {
     return [
-      // Member circles
+      // Member photo markers (symbol layer with icon-image)
       {
         id: this.id,
+        type: "symbol",
+        source: this.sourceId,
+        layout: {
+          "icon-image": [
+            "case",
+            ["has", "photo_url"],
+            // Use the photo URL key (member ID) if photo_url exists
+            ["concat", "family-photo-", ["string", ["get", "id"]]],
+            // Fallback to colored circle image for members without photos
+            "family-circle",
+          ],
+          "icon-size": 0.7,
+          "icon-allow-overlap": true,
+          "icon-ignore-placement": true,
+          "icon-padding": 2,
+          "icon-offset": [0, 0],
+        },
+        paint: {
+          "icon-opacity": [
+            "case",
+            ["has", "photo_url"],
+            1,
+            0, // Hide photo markers for members without photos
+          ],
+        },
+      },
+
+      // Member colored circles (fallback for members without photos)
+      {
+        id: `${this.id}-circles`,
         type: "circle",
         source: this.sourceId,
+        filter: ["!", ["has", "photo_url"]],
         paint: {
           "circle-radius": 10,
           "circle-color": ["get", "color"],
@@ -123,13 +212,14 @@ export class FamilyLayer extends BaseLayer {
         },
       },
 
-      // Member labels
+      // Member labels (only for members without photos)
       {
         id: `${this.id}-labels`,
         type: "symbol",
         source: this.sourceId,
+        filter: ["!", ["has", "photo_url"]],
         layout: {
-          "text-field": ["get", "name"],
+          "text-field": ["get", "display_name"],
           "text-font": ["Open Sans Bold", "Arial Unicode MS Bold"],
           "text-size": 12,
           "text-offset": [0, 1.5],
@@ -142,11 +232,12 @@ export class FamilyLayer extends BaseLayer {
         },
       },
 
-      // Pulse animation
+      // Pulse animation (only for members without photos)
       {
         id: `${this.id}-pulse`,
         type: "circle",
         source: this.sourceId,
+        filter: ["!", ["has", "photo_url"]],
         paint: {
           "circle-radius": [
             "interpolate",
@@ -169,16 +260,17 @@ export class FamilyLayer extends BaseLayer {
           ],
         },
       },
-    ]
+    ];
   }
 
   getLayerIds() {
     return [
       this.id,
+      `${this.id}-circles`,
       `${this.id}-labels`,
       `${this.id}-pulse`,
       `${this.id}-history`,
-    ]
+    ];
   }
 
   /**
@@ -186,24 +278,24 @@ export class FamilyLayer extends BaseLayer {
    * @param {Object} member - { id, name, latitude, longitude, color }
    */
   updateMember(member) {
-    const features = this.data?.features || []
-    const memberId = member.user_id || member.id
-    const lon = Number(member.longitude)
-    const lat = Number(member.latitude)
+    const features = this.data?.features || [];
+    const memberId = member.user_id || member.id;
+    const lon = Number(member.longitude);
+    const lat = Number(member.latitude);
 
     if (!this._isValidCoord(lon, lat)) {
       console.warn(
         "[FamilyLayer] Skipping member update with invalid coordinates:",
         member,
-      )
-      return
+      );
+      return;
     }
 
-    const coords = [lon, lat]
-    const color = member.color || this.getMemberColor(memberId)
+    const coords = [lon, lat];
+    const color = member.color || this.getMemberColor(memberId);
 
     // Find existing or add new
-    const index = features.findIndex((f) => f.properties.id === memberId)
+    const index = features.findIndex((f) => f.properties.id === memberId);
 
     const feature = {
       type: "Feature",
@@ -214,25 +306,32 @@ export class FamilyLayer extends BaseLayer {
       properties: {
         id: memberId,
         name: member.email || member.name,
+        display_name: member.display_name || member.email || member.name,
+        photo_url: member.photo_url,
         email: member.email,
         color: color,
         lastUpdate: Date.now(),
       },
-    }
+    };
 
     if (index >= 0) {
-      features[index] = feature
+      features[index] = feature;
     } else {
-      features.push(feature)
+      features.push(feature);
     }
 
     this.update({
       type: "FeatureCollection",
       features,
-    })
+    });
+
+    // Load the photo into the map if available
+    if (member.photo_url) {
+      this._loadPhotoIntoMap(memberId, member.photo_url);
+    }
 
     // Extend the history polyline with the new point
-    this.appendToHistory(memberId, coords, color)
+    this.appendToHistory(memberId, coords, color);
   }
 
   /**
@@ -240,13 +339,13 @@ export class FamilyLayer extends BaseLayer {
    * Creates the polyline if it doesn't exist yet.
    */
   appendToHistory(memberId, coords, color) {
-    const historySourceId = `${this.sourceId}-history`
-    const source = this.map.getSource(historySourceId)
-    if (!source) return
+    const historySourceId = `${this.sourceId}-history`;
+    const source = this.map.getSource(historySourceId);
+    if (!source) return;
 
-    const features = [...this._historyFeatures]
+    const features = [...this._historyFeatures];
 
-    const index = features.findIndex((f) => f.properties.userId === memberId)
+    const index = features.findIndex((f) => f.properties.userId === memberId);
 
     if (index >= 0) {
       // Append coordinate to existing polyline
@@ -256,11 +355,11 @@ export class FamilyLayer extends BaseLayer {
           type: "LineString",
           coordinates: [...features[index].geometry.coordinates, coords],
         },
-      }
+      };
     } else {
       // No existing polyline — store the point so the next update creates a line
       // A LineString needs at least 2 coordinates, so track pending starts
-      if (!this._pendingHistoryStarts) this._pendingHistoryStarts = {}
+      if (!this._pendingHistoryStarts) this._pendingHistoryStarts = {};
 
       if (this._pendingHistoryStarts[memberId]) {
         // We have a previous point, create the polyline
@@ -274,23 +373,23 @@ export class FamilyLayer extends BaseLayer {
             userId: memberId,
             color: color,
           },
-        })
-        delete this._pendingHistoryStarts[memberId]
+        });
+        delete this._pendingHistoryStarts[memberId];
       } else {
-        this._pendingHistoryStarts[memberId] = coords
-        return // Don't update source yet — need 2 points for a LineString
+        this._pendingHistoryStarts[memberId] = coords;
+        return; // Don't update source yet — need 2 points for a LineString
       }
     }
 
-    this._historyFeatures = features
-    source.setData({ type: "FeatureCollection", features })
+    this._historyFeatures = features;
+    source.setData({ type: "FeatureCollection", features });
   }
 
   _isValidCoord(lon, lat) {
-    if (!Number.isFinite(lon) || !Number.isFinite(lat)) return false
-    if (lon === 0 && lat === 0) return false
-    if (lon < -180 || lon > 180 || lat < -90 || lat > 90) return false
-    return true
+    if (!Number.isFinite(lon) || !Number.isFinite(lat)) return false;
+    if (lon === 0 && lat === 0) return false;
+    if (lon < -180 || lon > 180 || lat < -90 || lat > 90) return false;
+    return true;
   }
 
   /**
@@ -305,24 +404,24 @@ export class FamilyLayer extends BaseLayer {
         "#ef4444",
         "#8b5cf6",
         "#ec4899",
-      ]
-      const index = Object.keys(this.memberColors).length % colors.length
-      this.memberColors[memberId] = colors[index]
+      ];
+      const index = Object.keys(this.memberColors).length % colors.length;
+      this.memberColors[memberId] = colors[index];
     }
-    return this.memberColors[memberId]
+    return this.memberColors[memberId];
   }
 
   /**
    * Remove family member
    */
   removeMember(memberId) {
-    const features = this.data?.features || []
-    const filtered = features.filter((f) => f.properties.id !== memberId)
+    const features = this.data?.features || [];
+    const filtered = features.filter((f) => f.properties.id !== memberId);
 
     this.update({
       type: "FeatureCollection",
       features: filtered,
-    })
+    });
   }
 
   /**
@@ -331,8 +430,8 @@ export class FamilyLayer extends BaseLayer {
    */
   loadMembers(locations) {
     if (!Array.isArray(locations)) {
-      console.warn("[FamilyLayer] Invalid locations data:", locations)
-      return
+      console.warn("[FamilyLayer] Invalid locations data:", locations);
+      return;
     }
 
     const features = locations.map((location) => ({
@@ -344,6 +443,8 @@ export class FamilyLayer extends BaseLayer {
       properties: {
         id: location.user_id,
         name: location.email || "Unknown",
+        display_name: location.display_name || location.email || "Unknown",
+        photo_url: location.photo_url,
         email: location.email,
         color: location.color || this.getMemberColor(location.user_id),
         lastUpdate: Date.now(),
@@ -351,12 +452,19 @@ export class FamilyLayer extends BaseLayer {
         batteryStatus: location.battery_status,
         updatedAt: location.updated_at,
       },
-    }))
+    }));
 
     this.update({
       type: "FeatureCollection",
       features,
-    })
+    });
+
+    // Load all photos into the map
+    locations.forEach((location) => {
+      if (location.photo_url) {
+        this._loadPhotoIntoMap(location.user_id, location.photo_url);
+      }
+    });
   }
 
   /**
@@ -364,9 +472,9 @@ export class FamilyLayer extends BaseLayer {
    * @param {Array} historyData - Array of { user_id, points: [[lat, lon, ts], ...] }
    */
   loadMemberHistory(historyData) {
-    if (!Array.isArray(historyData)) return
+    if (!Array.isArray(historyData)) return;
 
-    const historySourceId = `${this.sourceId}-history`
+    const historySourceId = `${this.sourceId}-history`;
 
     const features = historyData
       .filter((member) => member.points && member.points.length >= 2)
@@ -380,15 +488,15 @@ export class FamilyLayer extends BaseLayer {
           userId: member.user_id,
           color: member.color || this.getMemberColor(member.user_id),
         },
-      }))
+      }));
 
-    this._historyFeatures = features
-    const geojson = { type: "FeatureCollection", features }
+    this._historyFeatures = features;
+    const geojson = { type: "FeatureCollection", features };
 
     if (this.map.getSource(historySourceId)) {
-      this.map.getSource(historySourceId).setData(geojson)
+      this.map.getSource(historySourceId).setData(geojson);
     } else {
-      this.map.addSource(historySourceId, { type: "geojson", data: geojson })
+      this.map.addSource(historySourceId, { type: "geojson", data: geojson });
       this.map.addLayer(
         {
           id: `${this.id}-history`,
@@ -405,7 +513,7 @@ export class FamilyLayer extends BaseLayer {
           },
         },
         this.id,
-      ) // Insert below member points
+      ); // Insert below member points
     }
   }
 
@@ -413,14 +521,14 @@ export class FamilyLayer extends BaseLayer {
    * Clear history polylines
    */
   clearHistory() {
-    const historyLayerId = `${this.id}-history`
-    const historySourceId = `${this.sourceId}-history`
+    const historyLayerId = `${this.id}-history`;
+    const historySourceId = `${this.sourceId}-history`;
 
     if (this.map.getLayer(historyLayerId)) {
-      this.map.removeLayer(historyLayerId)
+      this.map.removeLayer(historyLayerId);
     }
     if (this.map.getSource(historySourceId)) {
-      this.map.removeSource(historySourceId)
+      this.map.removeSource(historySourceId);
     }
   }
 
@@ -429,15 +537,15 @@ export class FamilyLayer extends BaseLayer {
    * @param {string} memberId - ID of the member to center on
    */
   centerOnMember(memberId) {
-    const features = this.data?.features || []
-    const member = features.find((f) => f.properties.id === memberId)
+    const features = this.data?.features || [];
+    const member = features.find((f) => f.properties.id === memberId);
 
     if (member && this.map) {
       this.map.flyTo({
         center: member.geometry.coordinates,
         zoom: 15,
         duration: 1500,
-      })
+      });
     }
   }
 
@@ -446,6 +554,84 @@ export class FamilyLayer extends BaseLayer {
    * @returns {Array} Array of member features
    */
   getMembers() {
-    return this.data?.features || []
+    return this.data?.features || [];
+  }
+
+  // ===== Photo Loading =====
+
+  /**
+   * Load a profile photo into the MapLibre map as an image asset.
+   * Uses a promise cache so concurrent calls for the same photo
+   * don't trigger duplicate fetches.
+   * If the map style isn't loaded yet, queues the photo for later.
+   * @param {string|number} memberId
+   * @param {string} photoUrl
+   */
+  _loadPhotoIntoMap(memberId, photoUrl) {
+    // If we already have this image on the map, skip
+    if (this.map.hasImage(`family-photo-${memberId}`)) return;
+
+    // If the style isn't loaded yet, queue the photo
+    if (!this.map.isStyleLoaded() || this._pendingImages) {
+      if (this._pendingImages) {
+        this._pendingImages.push([memberId, photoUrl]);
+      }
+      return;
+    }
+
+    // Return cached promise if loading is in progress
+    if (this._imageLoadPromises[memberId]) {
+      return this._imageLoadPromises[memberId];
+    }
+
+    this._imageLoadPromises[memberId] = (async () => {
+      try {
+        const image = await this._fetchImageAsCanvas(photoUrl);
+        if (!this.map) return; // Map may have been destroyed
+        if (this.map.hasImage(`family-photo-${memberId}`)) return; // Another call beat us
+        this.map.addImage(`family-photo-${memberId}`, image, { pixelRatio: 2 });
+      } catch (err) {
+        console.warn(
+          `[FamilyLayer] Failed to load photo for member ${memberId}:`,
+          err,
+        );
+      } finally {
+        delete this._imageLoadPromises[memberId];
+      }
+    })();
+
+    return this._imageLoadPromises[memberId];
+  }
+
+  /**
+   * Fetch an image URL and return it as a square canvas (for circular clipping).
+   * @param {string} url
+   * @returns {Promise<HTMLCanvasElement>}
+   */
+  _fetchImageAsCanvas(url) {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.crossOrigin = "anonymous";
+      img.onload = () => {
+        const size = 64; // Square canvas for circular avatar
+        const canvas = document.createElement("canvas");
+        canvas.width = size;
+        canvas.height = size;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) {
+          reject(new Error("No 2D context"));
+          return;
+        }
+        // Draw image centered and cropped to circle
+        ctx.clearRect(0, 0, size, size);
+        const dim = Math.min(img.width, img.height);
+        const sx = (img.width - dim) / 2;
+        const sy = (img.height - dim) / 2;
+        ctx.drawImage(img, sx, sy, dim, dim, 0, 0, size, size);
+        resolve(canvas);
+      };
+      img.onerror = () => reject(new Error(`Failed to load image: ${url}`));
+      img.src = url;
+    });
   }
 }

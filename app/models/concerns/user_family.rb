@@ -167,6 +167,8 @@ module UserFamily
     {
       user_id: id,
       email: email,
+      display_name: display_name,
+      photo_url: photo_url,
       latitude: latest_point.lat,
       longitude: latest_point.lon,
       timestamp: latest_point.timestamp,

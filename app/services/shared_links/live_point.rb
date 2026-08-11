@@ -12,7 +12,13 @@ module SharedLinks
     def call
       return { masked: true } if inside_privacy_zone?
 
-      { lat: @lat.to_f, lon: @lon.to_f, ts: @timestamp.to_i }
+      {
+        lat: @lat.to_f,
+        lon: @lon.to_f,
+        ts: @timestamp.to_i,
+        display_name: @user.display_name,
+        photo_url: @user.photo_url,
+      }
     end
 
     private

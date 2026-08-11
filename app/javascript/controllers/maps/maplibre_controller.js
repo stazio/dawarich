@@ -1592,7 +1592,8 @@ export default class extends Controller {
 
     container.replaceChildren(
       ...locations.map((location) => {
-        const emailInitial = location.email?.charAt(0)?.toUpperCase() || "?"
+        const displayName = location.display_name || location.email || "Unknown"
+        const photoUrl = location.photo_url
         const color = this.getFamilyMemberColor(location.user_id)
         const lastSeen = new Date(location.updated_at).toLocaleString("en-US", {
           timeZone: this.timezoneValue || "UTC",
@@ -1609,27 +1610,36 @@ export default class extends Controller {
         row.dataset.memberId = location.user_id
 
         const avatar = document.createElement("div")
-        Object.assign(avatar.style, {
-          backgroundColor: color,
-          color: "white",
-          borderRadius: "50%",
-          width: "24px",
-          height: "24px",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          fontSize: "12px",
-          fontWeight: "bold",
-          flexShrink: "0",
-        })
-        avatar.textContent = emailInitial
+        if (photoUrl) {
+          const img = document.createElement("img")
+          img.src = photoUrl
+          img.alt = displayName
+          img.className = "rounded-full w-6 h-6 object-cover flex-shrink-0"
+          avatar.appendChild(img)
+        } else {
+          const initial = displayName.charAt(0).toUpperCase()
+          Object.assign(avatar.style, {
+            backgroundColor: color,
+            color: "white",
+            borderRadius: "50%",
+            width: "24px",
+            height: "24px",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            fontSize: "12px",
+            fontWeight: "bold",
+            flexShrink: "0",
+          })
+          avatar.textContent = initial
+        }
 
         const info = document.createElement("div")
         info.className = "flex-1 min-w-0"
 
-        const emailDiv = document.createElement("div")
-        emailDiv.className = "text-sm font-medium truncate"
-        emailDiv.textContent = location.email || "Unknown"
+        const nameDiv = document.createElement("div")
+        nameDiv.className = "text-sm font-medium truncate"
+        nameDiv.textContent = displayName
 
         const timeDiv = document.createElement("div")
         timeDiv.className = "text-xs text-base-content/60"
@@ -1639,7 +1649,7 @@ export default class extends Controller {
         statusDiv.className = "text-xs text-info/70"
         statusDiv.dataset.memberInfo = location.user_id
 
-        info.append(emailDiv, timeDiv, statusDiv)
+        info.append(nameDiv, timeDiv, statusDiv)
         row.append(avatar, info)
         return row
       }),

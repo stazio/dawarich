@@ -48,6 +48,8 @@ class Families::Locations
       {
         user_id: point.user_id,
         email: point.user.email,
+        display_name: point.user.display_name,
+        photo_url: point.user.photo_url,
         email_initial: point.user.email.first.upcase,
         latitude: point.lat,
         longitude: point.lon,
@@ -78,6 +80,8 @@ class Families::Locations
       {
         user_id: member.id,
         email: member.email,
+        display_name: member.display_name,
+        photo_url: member.photo_url,
         email_initial: member.email.first.upcase,
         sharing_since: member.family_sharing_started_at&.iso8601,
         points: sampled.pluck(
