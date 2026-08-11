@@ -53,6 +53,7 @@ class ApplicationController < ActionController::Base
 
   def configure_permitted_parameters
     devise_parameter_sanitizer.permit(:sign_in, keys: [:otp_attempt])
+    devise_parameter_sanitizer.permit(:account_update, keys: [:display_name, :photo_data])
   end
 
   def unread_notifications

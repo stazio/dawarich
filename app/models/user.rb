@@ -321,6 +321,20 @@ class User < ApplicationRecord
     [home_place.latitude, home_place.longitude]
   end
 
+  def display_name
+    self[:display_name].presence || email
+  end
+
+  def photo_url
+    return nil unless photo_data.present?
+
+    photo_data
+  end
+
+  def photo_data=(value)
+    super
+  end
+
   def supporter?
     supporter_info[:supporter] == true
   end

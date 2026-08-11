@@ -1,5 +1,21 @@
 <% content_for :title, 'Account' %>
 
+<script>
+  function previewPhoto(input) {
+    const preview = document.getElementById('photo-preview');
+    if (input.files && input.files[0]) {
+      const reader = new FileReader();
+      reader.onload = function(e) {
+        preview.src = e.target.result;
+        preview.classList.remove('hidden');
+      };
+      reader.readAsDataURL(input.files[0]);
+    } else {
+      preview.classList.add('hidden');
+    }
+  }
+</script>
+
 <div class="w-full min-w-0 my-5">
   <div class="mx-auto w-full max-w-7xl space-y-6">
     <div>
@@ -8,21 +24,67 @@
 
     <div class="grid gap-6 lg:grid-cols-[minmax(0,24rem)_minmax(0,1fr)] lg:items-start">
       <div class="order-1 space-y-6 lg:sticky lg:top-6">
-        <div class="card bg-base-100 shadow-xl">
-          <div class="card-body gap-5 p-5 sm:p-6">
-            <div>
-              <h2 class="card-title text-2xl">Profile</h2>
-              <p class="mt-1 text-sm text-base-content/70">Update your email address and password from one place.</p>
-            </div>
+        <%= form_for(resource, as: resource_name, url: registration_path(resource_name), class: 'form-body', method: :put, data: { turbo_method: :put, turbo: false }) do |f| %>
+          <%= render "devise/shared/error_messages", resource: resource %>
 
-            <% if current_user.oauth_user? %>
-              <div class="rounded-xl border border-base-300 bg-base-200/50 px-4 py-3 text-sm font-medium">
-                Connected with <%= oauth_provider_display_name(current_user.provider) %>
+          <div class="card bg-base-100 shadow-xl">
+            <div class="card-body gap-5 p-5 sm:p-6">
+              <div>
+                <h2 class="card-title text-2xl">Profile</h2>
+                <p class="mt-1 text-sm text-base-content/70">Update your display name and photo for family sharing.</p>
               </div>
-            <% end %>
 
-            <%= form_for(resource, as: resource_name, url: registration_path(resource_name), class: 'form-body', method: :put, data: { turbo_method: :put, turbo: false }) do |f| %>
-              <%= render "devise/shared/error_messages", resource: resource %>
+              <div class="space-y-4">
+                <div class="form-control">
+                  <%= f.label :display_name, class: 'label' do %>
+                    <span class="label-text">Display name</span>
+                  <% end %>
+                  <%= f.text_field :display_name, autocomplete: "name",
+                      class: 'input input-bordered w-full',
+                      placeholder: "Your name (shown to family members)" %>
+                </div>
+
+                <div class="form-control">
+                  <%= f.label :photo_data, class: 'label' do %>
+                    <span class="label-text">Profile photo</span>
+                  <% end %>
+                  <div class="flex items-center gap-4">
+                    <div class="avatar">
+                      <div class="w-16 rounded-full ring ring-primary ring-offset-base-100 ring-offset-2">
+                        <% if current_user.photo_url %>
+                          <img src="<%= current_user.photo_url %>" alt="Profile photo" />
+                        <% else %>
+                          <div class="bg-primary/20"></div>
+                        <% end %>
+                      </div>
+                    </div>
+                    <div class="flex-1">
+                      <%= f.file_field :photo_data,
+                          accept: 'image/*',
+                          class: 'file-input file-input-bordered file-input-sm w-full',
+                          data: { turbo: false },
+                          onchange: "previewPhoto(this)" %>
+                      <p class="mt-1 text-xs text-base-content/50">PNG, JPG up to 2 MB</p>
+                    </div>
+                  </div>
+                  <img id="photo-preview" class="mt-3 hidden w-16 rounded-full" alt="Photo preview" />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="card bg-base-100 shadow-xl">
+            <div class="card-body gap-5 p-5 sm:p-6">
+              <div>
+                <h2 class="card-title text-2xl">Account</h2>
+                <p class="mt-1 text-sm text-base-content/70">Update your email address and password from one place.</p>
+              </div>
+
+              <% if current_user.oauth_user? %>
+                <div class="rounded-xl border border-base-300 bg-base-200/50 px-4 py-3 text-sm font-medium">
+                  Connected with <%= oauth_provider_display_name(current_user.provider) %>
+                </div>
+              <% end %>
 
               <div class="form-control">
                 <%= f.label :email, class: 'label' do %>
@@ -70,11 +132,11 @@
               <div class="form-control mt-6">
                 <%= f.submit "Save changes", class: 'btn btn-primary w-full sm:w-auto' %>
               </div>
-            <% end %>
-
-            <%= render "devise/shared/links" %>
+            </div>
           </div>
-        </div>
+
+          <%= render "devise/shared/links" %>
+        <% end %>
 
         <dialog id="import_modal" class="modal">
           <div class="modal-box">

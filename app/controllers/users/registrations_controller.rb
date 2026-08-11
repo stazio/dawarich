@@ -105,6 +105,9 @@ class Users::RegistrationsController < Devise::RegistrationsController
   end
 
   def update_resource(resource, params)
+    # Convert uploaded file to base64 before passing to the model
+    convert_photo_upload_for_update(params)
+
     return super unless resource.oauth_user?
 
     if params[:password].present?
@@ -112,6 +115,13 @@ class Users::RegistrationsController < Devise::RegistrationsController
     else
       resource.update_without_password(params)
     end
+  end
+
+  def convert_photo_upload_for_update(params)
+    photo = params[:photo_data]
+    return unless photo.is_a?(ActionDispatch::Http::UploadedFile)
+
+    params[:photo_data] = "data:#{photo.content_type};base64,#{Base64.strict_encode64(photo.read)}"
   end
 
   def after_sign_up_path_for(resource)
@@ -223,7 +233,25 @@ class Users::RegistrationsController < Devise::RegistrationsController
   end
 
   def sign_up_params
-    super
+    params = super
+    convert_photo_upload(params)
+    params
+  end
+
+  protected
+
+  def edit_resource_params
+    params.require(resource_name).permit(:email, :password, :password_confirmation, :current_password,
+                                        :display_name, :photo_data)
+  end
+
+  private
+
+  def convert_photo_upload(params)
+    photo = params[:photo_data]
+    return unless photo.is_a?(ActionDispatch::Http::UploadedFile)
+
+    params[:photo_data] = "data:#{photo.content_type};base64,#{Base64.strict_encode64(photo.read)}"
   end
 
   def store_signup_intent(user)
